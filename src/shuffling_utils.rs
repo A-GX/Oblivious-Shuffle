@@ -1,9 +1,6 @@
 use rand::Rng;
-/*
- * The goal of this part is to facilitate the protocol execution. We assume methods external
- * to the crate to manage the secret sharing scheme and the communication. We thus only 
- * care about generating and agreeing between shufflers on a random perumtation 
- */
+
+
 
 /// Coin tossing protocol based on bit commitment : 
 ///  -> Given N the lenght of the list we want to shuffle, we generate a random
