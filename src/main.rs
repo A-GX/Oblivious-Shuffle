@@ -1,6 +1,7 @@
 #![allow(unused)]
 pub mod shuffling_tests;
 pub mod shuffling_utils;
+pub mod debug;
 
 fn main() {
     std::env::set_var("RUST_BACKTRACE", "1");

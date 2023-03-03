@@ -4,6 +4,7 @@ use secret_sharing_utils::*;
 use rand::Rng;
 
 use super::shuffling_utils;
+use super::debug::debug_util;
 
 
 
@@ -73,13 +74,13 @@ pub fn run_test(party: Option<usize>) {
         Some(S_1) => {
             test_servers(party, vec!["127.0.0.1:7778", "127.0.0.1:7780"], vec!["127.0.0.1:7782"])
                 .expect("Could not initialise Worker 1");
-            test_shufflers();
+            test_shufflers(S_1);
         },
         // Shuffler 2
         Some(S_2) => {
             test_servers(party, vec!["127.0.0.1:7779", "127.0.0.1:7781", "127.0.0.1:7782"], Vec::new())
                 .expect("Could not initialise Worker 1");
-            test_shufflers();
+            test_shufflers(S_2);
         },
         // Unknown
         Some(_) | None => panic!("unvalid  or none initialized party")
@@ -90,8 +91,8 @@ pub fn run_test(party: Option<usize>) {
 
 fn generate_shares(val: u8) -> (u8,u8) {
     let mut rng = rand::thread_rng();
-    let val1 = val - rng.gen_range(0..val);
-    let val2 = val - val1;
+    let mut val1 = val - rng.gen_range(0..val+1);
+    let mut val2 = val - val1;
     assert!(val == val2 + val1);
     (val1,val2)
 }
@@ -150,7 +151,7 @@ pub fn test_workers(party: usize, s: Option<(Vec<u8>,Vec<u8>)> ) -> std::io::Res
 }
 
 
-pub fn test_shufflers() {
+pub fn test_shufflers(party: usize) {
     let mut share: Vec<u8> = Vec::new();
     let mut share1: Vec<u8> = wait_for_vec(W_1).expect("Cannot receive from Worker 1");
     let mut share2: Vec<u8> = wait_for_vec(W_2).expect("Cannot receive from Worker 2");
@@ -160,13 +161,47 @@ pub fn test_shufflers() {
 
     for i in 0..share1.len(){
         share.push(share1[i] + share2[i]);
-        let (val1,val2): (u8,u8) = generate_shares(share[i]);
+    }
+    
+    let len = share.len();
+    shuffle(party, &mut share, 0, len);
+
+    for i in 0..share.len() {
+        let (val1,val2) = generate_shares(share[i]);
         share1[i] = val1;
         share2[i] = val2;
     }
 
-    print!("{:?}\n{:?}\n", share1, share2);
-
     send_vec_to(W_1, &share1).expect("Cannot send share back to Worker 1");
     send_vec_to(W_2, &share2).expect("Cannot send share back to Worker 2");
+}
+
+fn shuffle(party: usize, list: &mut Vec<u8>, start: usize, end: usize) {
+    println!("start:{:?}; end:{:?}",start, end);
+    if end-start > 1{
+        let mut perm = shuffling_utils::rao_sandelius_choose(end-start);
+
+        // agrees on permutation
+        let mut perm2: Vec<u8> = Vec::new();
+        if party == S_1 {
+            perm2 = send_and_wait_for_vec(&perm, S_2).expect("Cannot sent or receive from shuffler 2");
+        }
+        else {
+            perm2 = wait_for_vec(S_1).expect("Cannot receive from shuffler 1");
+            send_vec_to(S_1, &perm).expect("Cannot send to shuffler 1");
+        }
+        assert!(perm.len() == perm2.len());
+        for i in 0..perm.len() {
+            if perm[i] == perm2[i] {perm[i]==0;}
+            else {perm[i] = 1;}
+        }
+
+        // permutate data
+        let p: usize = shuffling_utils::rao_sandelius_permutate(list, &perm, start, end-1);
+        //permutate the rest of the list
+        if end-start > 2 {
+            shuffle(party, list, start, p);
+            shuffle(party, list, p, end);
+        }
+    }
 }

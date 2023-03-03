@@ -37,15 +37,15 @@ pub fn rao_sandelius_choose(len: usize) -> Vec<u8> {
 /// * `end` -> the end index of the slice to permutate
 /// 
 pub fn rao_sandelius_permutate<T: Copy>(in_vec: &mut Vec<T>, perm: &Vec<u8>, start: usize, end: usize) -> usize {
-    if start-end == 1 {
+    if end-start == 1 {
         if perm[0] == 1 {swap(in_vec, start, end);}
-        return 0;
+        return start;
     }
     else {
-        let mut p: usize = 0;
-        for i in start..end+1 {
+        let mut p: usize = start;
+        for i in 0..end+1-start {
             if perm[i]<1 {
-                swap(in_vec, p, i);
+                swap(in_vec, p, i+start);
                 p = p+1;
             } 
         }
