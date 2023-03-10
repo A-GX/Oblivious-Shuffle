@@ -1,6 +1,7 @@
 #![allow(unused)]
-extern crate secret_sharing_utils;
-use secret_sharing_utils::*;
+extern crate replicatedsecretsharing;
+use replicatedsecretsharing::*;
+use replicatedsecretsharing::datatypes::{Share, ass::*};
 use rand::Rng;
 
 use super::shuffling_utils;
@@ -9,10 +10,20 @@ use super::debug::debug_util;
 
 
 
-pub const W_1: usize = 1;
-pub const W_2: usize = 2;
-pub const S_1: usize = 3;
-pub const S_2: usize = 4;
+pub const W_1: usize = 0;
+pub const W_2: usize = 1;
+pub const S_1: usize = 2;
+pub const S_2: usize = 3;
+
+
+
+impl shuffling_utils::Swap for Vec<ASS64> {
+    fn swap(&mut self, a: usize, b: usize) {
+        let tempo =  self[a];
+        self[a] = self[b];
+        self[b] = tempo; 
+    }
+}
 
 
 /// set-up the environnment to test the shuffling and sorting algorithm. You need to
@@ -49,38 +60,53 @@ pub fn run_test(party: Option<usize>) {
     match party {
         // Worker 1
         Some(W_1) => {
+            init_servers(party, Vec::new(), vec!["127.0.0.1:7777", "127.0.0.1:7778", "127.0.0.1:7779"])
+                .expect("Could not initialise Worker 1");
             // generate a randome vector of secret and create to vectors of shares
             let mut rng = rand::thread_rng();
-            let secret: Vec<u8> = (0..15).map(|_| rng.gen_range(2..255)).collect();
-            let mut share_1: Vec<u8> = Vec::new();
-            let mut share_2: Vec<u8> = Vec::new();
-            for i in 0..secret.len(){
-                let (val1,val2): (u8,u8) = generate_shares(secret[i]);
-                share_1.push(val1);
-                share_2.push(val2);
+            let mut secret: Vec<u64> = Vec::new();
+            let mut secret_shared: Vec<ASS64> = Vec::new();
+            for i in 0..15 {
+                let s: u64 = rng.gen_range(0..255);
+                let share: ASS64 = ASS64::share(s, W_2).expect("Could not share the secret");
+                secret.push(s);
+                secret_shared.push(share);
             }
+            
+            // let mut share_1: Vec<u8> = Vec::new();
+            // let mut share_2: Vec<u8> = Vec::new();
+            // for i in 0..secret.len(){
+            //     let (val1,val2): (u8,u8) = generate_shares(secret[i]);
+            //     share_1.push(val1);
+            //     share_2.push(val2);
+            // }
             println!("{:?}", secret);
-            test_servers(party, Vec::new(), vec!["127.0.0.1:7777", "127.0.0.1:7778", "127.0.0.1:7779"])
-                .expect("Could not initialise Worker 1");
-            test_workers(1, Some((share_1, share_2))).expect("Worker 1 failed");
+
+            test_workers(W_1, secret_shared);
         },
         // Worker 2
         Some(W_2) => {
-            test_servers(party, vec!["127.0.0.1:7777"], vec!["127.0.0.1:7780", "127.0.0.1:7781"])
+            init_servers(party, vec!["127.0.0.1:7777"], vec!["127.0.0.1:7780", "127.0.0.1:7781"])
                 .expect("Could not initialise Worker 1");
-            test_workers(2, None).expect("Worker 2 failed");
+
+                let mut secret_shared: Vec<ASS64> = Vec::new();
+                for i in 0..15 {
+                    let share: ASS64 = ASS64::from_share(W_1).expect("Coud not received from W_1");
+                    secret_shared.push(share);
+                }
+                test_workers(W_2, secret_shared);
         },
         // Shuffler 1
         Some(S_1) => {
-            test_servers(party, vec!["127.0.0.1:7778", "127.0.0.1:7780"], vec!["127.0.0.1:7782"])
+            init_servers(party, vec!["127.0.0.1:7778", "127.0.0.1:7780"], vec!["127.0.0.1:7782"])
                 .expect("Could not initialise Worker 1");
-            test_shufflers(S_1);
+            test_shufflers(S_1, 15);
         },
         // Shuffler 2
         Some(S_2) => {
-            test_servers(party, vec!["127.0.0.1:7779", "127.0.0.1:7781", "127.0.0.1:7782"], Vec::new())
+            init_servers(party, vec!["127.0.0.1:7779", "127.0.0.1:7781", "127.0.0.1:7782"], Vec::new())
                 .expect("Could not initialise Worker 1");
-            test_shufflers(S_2);
+            test_shufflers(S_2, 15);
         },
         // Unknown
         Some(_) | None => panic!("unvalid  or none initialized party")
@@ -89,94 +115,49 @@ pub fn run_test(party: Option<usize>) {
 
 
 
-fn generate_shares(val: u8) -> (u8,u8) {
-    let mut rng = rand::thread_rng();
-    let mut val1 = val - rng.gen_range(0..val+1);
-    let mut val2 = val - val1;
-    assert!(val == val2 + val1);
-    (val1,val2)
-}
 
 
-
-pub fn test_workers(party: usize, s: Option<(Vec<u8>,Vec<u8>)> ) -> std::io::Result<()>{
-    let share: Vec<u8>;
-    match s {
-        Some((s1,s2)) => {
-            assert!(party == W_1);
-            share = s1;
-            send_vec_to(W_2, &s2).expect("could not send its shares to Worker 2")
-        },
-        None => {
-            assert!(party == W_2);
-            share = wait_for_vec(W_1).expect("could not receive the shares for Worker 1");
-        }
-    }
-    let mut share1: Vec<u8> = Vec::new();
-    let mut share2: Vec<u8> = Vec::new();
-    for i in 0..share.len(){
-        let (val1,val2): (u8,u8) = generate_shares(share[i]);
-        share1.push(val1);
-        share2.push(val2);
-    }
-    send_vec_to(S_1, &share1).expect("share1 not sent");
-    send_vec_to(S_2, &share2).expect("share2 not sent");
-
-    share1 = wait_for_vec(S_1).expect("Cannot receive from Shuffler 1");
-    share2 = wait_for_vec(S_2).expect("Cannot receive from Shuffler 2");
-    assert!(share1.len() == share2.len());
-
-    let mut received: Vec<u8> = Vec::new();
-    for i in 0..share1.len() {
-        received.push(share1[i]+share2[i]);
+pub fn test_workers(party: usize, vect_s: Vec<ASS64> ) -> std::io::Result<()> {
+    for s in 0..vect_s.len() {
+        vect_s[s].share_to(S_1, S_2)?;
     }
 
-    let mut res: Vec<u8> = Vec::new();
-    if party == 1 {
-        res = send_and_wait_for_vec(&received, W_2).expect("Cannot sent to Worker 2");
-        assert!(res.len() == received.len());
-    }
-    else {
-        res = wait_for_vec(W_1).expect("Worker 2 cannot receieved shares from Worker 1");
-        send_vec_to(W_1, &received).expect("Worker 2 cannot send shares to Worker 1");
-        assert!(res.len() == received.len());
+    println!("hey");
+
+    let mut new_vec_s: Vec<ASS64> = Vec::new();
+    for _s in 0..vect_s.len() {
+        new_vec_s.push(ASS64::from_2_share(S_1, S_2)?);
     }
 
-    for i in 0..received.len() {
-        res[i] += received[i];
+    let mut res: Vec<u64> = Vec::new();
+    for i in 0..new_vec_s.len() {
+        res.push(new_vec_s[i].reveal()?)
     }
+    assert!(res.len() == vect_s.len());
 
-    println!("{:?}",res);
+    println!("finished : {:?}", res);
+
     Ok(())
 }
 
 
-pub fn test_shufflers(party: usize) {
-    let mut share: Vec<u8> = Vec::new();
-    let mut share1: Vec<u8> = wait_for_vec(W_1).expect("Cannot receive from Worker 1");
-    let mut share2: Vec<u8> = wait_for_vec(W_2).expect("Cannot receive from Worker 2");
-    assert!(share1.len() == share2.len());
-
-    print!("{:?}\n{:?}\n", share1, share2);
-
-    for i in 0..share1.len(){
-        share.push(share1[i] + share2[i]);
-    }
-    
-    let len = share.len();
-    shuffle(party, &mut share, 0, len);
-
-    for i in 0..share.len() {
-        let (val1,val2) = generate_shares(share[i]);
-        share1[i] = val1;
-        share2[i] = val2;
+pub fn test_shufflers(party: usize, len: usize) -> std::io::Result<()> {
+    let mut vec_s: Vec<ASS64> = Vec::new();
+    for _i in 0..len {
+        vec_s.push(ASS64::from_2_share(W_1, W_2)?);
     }
 
-    send_vec_to(W_1, &share1).expect("Cannot send share back to Worker 1");
-    send_vec_to(W_2, &share2).expect("Cannot send share back to Worker 2");
+    shuffle(party, &mut vec_s, 0, len);
+
+
+    for i in 0..len {
+        vec_s[i].share_to(W_1, W_2)?;
+    }
+
+    Ok(())
 }
 
-fn shuffle(party: usize, list: &mut Vec<u8>, start: usize, end: usize) {
+fn shuffle(party: usize, list: &mut Vec<ASS64>, start: usize, end: usize) {
     println!("start:{:?}; end:{:?}",start, end);
     if end-start > 1{
         let mut perm = shuffling_utils::rao_sandelius_choose(end-start);

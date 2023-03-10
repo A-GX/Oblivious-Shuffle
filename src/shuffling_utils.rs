@@ -1,7 +1,6 @@
 use rand::Rng;
 
 
-
 /// Coin tossing protocol based on bit commitment : 
 ///  -> Given N the lenght of the list we want to shuffle, we generate a random
 ///     vector of bits of length log(n)
@@ -36,16 +35,16 @@ pub fn rao_sandelius_choose(len: usize) -> Vec<u8> {
 /// * `start`-> the starting index of the slice to permutate
 /// * `end` -> the end index of the slice to permutate
 /// 
-pub fn rao_sandelius_permutate<T: Copy>(in_vec: &mut Vec<T>, perm: &Vec<u8>, start: usize, end: usize) -> usize {
+pub fn rao_sandelius_permutate<T: Swap>(in_vec: &mut T, perm: &Vec<u8>, start: usize, end: usize) -> usize {
     if end-start == 1 {
-        if perm[0] == 1 {swap(in_vec, start, end);}
+        if perm[0] == 1 {in_vec.swap(start, end);}
         return start;
     }
     else {
         let mut p: usize = start;
         for i in 0..end+1-start {
             if perm[i]<1 {
-                swap(in_vec, p, i+start);
+                in_vec.swap(p, i+start);
                 p = p+1;
             } 
         }
@@ -53,8 +52,6 @@ pub fn rao_sandelius_permutate<T: Copy>(in_vec: &mut Vec<T>, perm: &Vec<u8>, sta
     }
 }
 
-fn swap<T: Copy>(in_vec: &mut Vec<T>, a: usize, b: usize) {
-    let tempo: T = in_vec[a];
-    in_vec[a] = in_vec[b];
-    in_vec[b] = tempo;
+pub trait Swap {
+    fn swap(&mut self, a: usize, b: usize);
 }
